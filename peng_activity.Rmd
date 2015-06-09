@@ -1,0 +1,152 @@
+---
+title: 'Reproducible Data: Peer Assessment 1'
+author: "Robert Wiederstein"
+date: "June 1, 2015"
+output: html_document
+---
+First, the data set will be read into R.
+
+```{r, echo=TRUE}
+file <- "activity.zip"
+path <- getwd()
+zipfile <- paste(path, file, sep = "/")
+unzip(zipfile = zipfile)
+a <- read.csv("activity.csv", stringsAsFactors = F)
+```
+
+
+
+```{r, echo=TRUE}
+library(plyr)
+library(dplyr)
+a <- a[which(complete.cases(a) == TRUE), ]
+tot.steps.per.day <- ddply(a, .(date), summarize,
+                           date = unique(date),
+                           sum = sum(steps, na.rm = T), 
+                           mean = mean(steps, na.rm = T), 
+                           median = median(steps, na.rm = T)
+                           )
+```
+The mean total number of steps taken per day is `r round(tot.steps.per.day$mean, 2)`.
+
+```{r}
+library(ggplot2)
+p <- ggplot(tot.steps.per.day, aes(sum))
+p <- p + geom_histogram()
+p <- p + ggtitle("Histogram of Total Steps by Day")
+p
+```
+
+
+```{r}
+a <- a[which(complete.cases(a) == T), ]
+a[which(nchar(a$interval) == 3), 3] <- paste("0", a[which(nchar(a$interval) == 3), 3], sep = "")
+a[which(nchar(a$interval) == 2), 3] <- paste("00", a[which(nchar(a$interval) == 2), 3], sep = "")
+a[which(nchar(a$interval) == 1), 3] <- paste("000", a[which(nchar(a$interval) == 1), 3], sep = "")
+a$steps <- as.integer(a$steps)
+avg.steps.per.interval <- ddply(a, .(interval), summarize, 
+                                mean_steps = round(mean(steps, na.rm = T), 3),
+                                time_interval = unique(interval)
+                                )
+avg.steps.per.interval$time_interval <- strptime(avg.steps.per.interval$time_interval, "%H%M")
+avg.steps.per.interval$hm <- format(avg.steps.per.interval$time_interval, format = "%H:%M")
+avg.steps.per.interval$hm <- as.POSIXct(avg.steps.per.interval$hm, format = "%H:%M")
+
+library(scales)
+library(ggplot2)
+p <- ggplot(avg.steps.per.interval, aes(hm, mean_steps))
+p <- p + geom_line()
+p <- p + xlab("time") + ylab("number") + ggtitle("Avg. Steps Per Time Interval \n (intervals in 5 min. increments)")
+p <- p + scale_x_datetime(labels = date_format("%H%:%M"))
+p
+```
+
+
+```{r, echo=T}
+time.interval <- avg.steps.per.interval[which(avg.steps.per.interval$mean_steps == max(avg.steps.per.interval$mean_steps)), 1]
+```
+
+The 5-minute interval where the most steps are taken, on average, is `r time.interval`.
+
+
+```{r, echo=TRUE}
+b <- read.csv("activity.csv", stringsAsFactors = F)
+missing.obs <- length(which(complete.cases(b) == F))
+```
+
+The number of observations that have missing or incomplete data are `r missing.obs`.
+
+```{r, echo=T}
+b <- read.csv("activity.csv", stringsAsFactors = F)
+count.na <- function(x){
+    length(which(is.na(x) == T))
+}
+missing.na <- apply(b, MARGIN = 2, count.na)
+```
+
+All of the missing values in the data set are confined to the variable "steps."
+
+```{r, echo=TRUE}
+complete <- b[which(complete.cases(b) == T), ]
+
+complete.steps <- ddply(complete, .(interval), summarize,
+                           date = unique(interval),
+                           sum = sum(steps, na.rm = T), 
+                           mean = mean(steps, na.rm = T), 
+                           median = median(steps, na.rm = T)
+                           )
+#complete.steps <- complete.steps[, c(1, 4)]
+missing <- b[which(complete.cases(b)==F), ]
+impute <- merge(missing, complete.steps, by = c("interval"))
+impute <- impute[order(impute$date.x), ]
+impute$steps <- impute$mean
+impute <- impute[, c("steps", "date.x", "interval")]
+names(impute)[2] <- "date"
+new.df <- rbind(complete, impute)
+```
+
+```{r, echo=TRUE}
+imputed.steps <- ddply(new.df, .(interval), summarize,
+                           date = unique(interval),
+                           sum = sum(steps, na.rm = T), 
+                           mean = mean(steps, na.rm = T), 
+                           median = median(steps, na.rm = T)
+                           )
+
+p <- ggplot(imputed.steps, aes(sum))
+p <- p + geom_histogram()
+p <- p + ggtitle("Histogram Total Num. of Steps Each Day")
+p
+```
+The mean steps from the imputed data set is `r imputed.steps$mean`.  The median steps from the imputed data set is `r imputed.steps$median`.
+
+```{r, echo=TRUE}
+p <- ggplot(imputed.steps, aes(date, sum))
+p <- p + geom_line(colour = "red")
+p <- p + geom_line(data = complete.steps)
+p <- p + ggtitle("Compare Total Steps in Imputed Dataset to Complete Cases Dataset")
+p
+```
+
+```{r, echo=TRUE}
+new.df$weekdays <- weekdays(as.Date(new.df$date), abbreviate = T)
+weekdays <- c("Mon", "Tue", "Wed", "Thu", "Fri")
+weekend <- c("Sat", "Sun")
+new.df$weekdays[which(new.df$weekdays %in% weekdays)] <- "weekday"
+new.df$weekdays[which(new.df$weekdays %in% weekend)] <- "weekend"
+new.df$weekday <- as.factor(new.df$weekday)
+
+new.df1 <- ddply(new.df, .(interval, weekday), summarize,
+                           interval = unique(interval),
+                           sum = sum(steps, na.rm = T), 
+                           mean = mean(steps, na.rm = T), 
+                           median = median(steps, na.rm = T)
+                           )
+
+p <- ggplot(new.df1, aes(interval, sum))
+p <- p + geom_line()
+p <- p + facet_grid(weekday ~ .)
+p <- p + ggtitle("Average Number of Steps Taken \n Weekend vs. Weekday")
+p <- p + ylab("Number of Steps")
+p
+```
